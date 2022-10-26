@@ -2,7 +2,7 @@ type: install
 version: 0.2
 id: nexus
 name: Nexus Repository Manager
-baseUrl: https://raw.githubusercontent.com/jelastic-jps/nexus/master/
+baseUrl: https://raw.githubusercontent.com/jelasticozor/nexus-jps/main/
 logo: images/Nexus.png
 homepage: https://www.sonatype.com/products/repository-oss
 description: Nexus Repository OSS is an open source repository that supports many
@@ -35,6 +35,7 @@ actions:
       yum -y install nexus-repository-manager &>> /var/log/run.log
       echo /opt/sonatype/ >> /etc/jelastic/redeploy.conf
       sleep 10
+      wget ${baseUrl}/conf/nexus.properties -O /opt/sonatype/sonatype-work/nexus3/etc/nexus.properties 
       chmod 664 /opt/sonatype/sonatype-work/nexus3/etc/nexus.properties
       usermod -a -G nexus3 jelastic
     user: root
