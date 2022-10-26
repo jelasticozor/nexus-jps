@@ -14,8 +14,13 @@ categories:
 - apps/dev-tools
 - apps/dev-and-admin-tools
 
-ssl: true
+ssl: false
 nodes:
+- nodeType: nginx-dockerized
+  nodeGroup: bl
+  count: 1
+  fixedCloudlets: 1
+  cloudlets: 4
 - cloudlets: 32
   fixedCloudlets: 1
   nodeType: nginxphp
