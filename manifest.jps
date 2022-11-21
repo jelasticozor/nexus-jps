@@ -14,6 +14,41 @@ categories:
 - apps/dev-tools
 - apps/dev-and-admin-tools
 
+settings:
+  fields:
+  - type: spacer
+    caption: Docker
+  - name: dockerGroupListeningPort
+    caption: Group Listening Port
+    type: string
+    default: 8443
+  - name: dockerGroupConnectorPort
+    caption: Group Connector Port
+    type: string
+    default: 8082
+  - name: dockerHostedListeningPort
+    caption: Group Listening Port
+    type: string
+    default: 18443
+  - name: dockerHostedConnectorPort
+    caption: Group Connector Port
+    type: string
+    default: 8083
+  - type: spacer
+    caption: SSL
+  - name: useDefaultExternalDomain
+    type: toggle
+    caption: Use Default External Domain
+    value: true
+    hidden: false
+    showIf:
+      false:
+      - name: externalDomains
+        caption: External domain names (;-separated list)
+        type: string
+        vtype: domainlist
+        required: true
+
 ssl: false
 nodes:
 - nodeType: nginx-dockerized
@@ -26,11 +61,23 @@ nodes:
   nodeType: nginxphp
 
 onInstall:
+- compute-optional-params
 - install-nexus
 - setup-nginx
 - installAddon:
     id: update-nexus
     nodeGroup: cp
+- installAddon:
+    id: letsencrypt
+    settings:
+      externalDomains: ${globals.EXTERNAL_DOMAINS}
+- disable-script-endpoint
+- setup-docker-access
+- setup-firewall-for-docker
+- close-from-outside-world:
+    nodeGroup: cp
+    relatedNodeGroup: bl
+- auto-redirect-to-https
 
 actions:
   install-nexus:
@@ -61,6 +108,92 @@ actions:
         replacement: application-host=127.0.0.1
   - api [cp]: jelastic.environment.control.RestartNodes
   - cmd [cp]: sleep 15
+  compute-optional-params:
+    - script: |
+        return {
+          result: 0,
+          externalDomains: ${settings.useDefaultExternalDomain} ? "${env.domain}" : "${settings.externalDomains}",
+        };
+    - setGlobals:
+        EXTERNAL_DOMAINS: ${response.externalDomains}
+  disable-script-endpoint:
+    - cmd[bl]: wget ${baseUrl}/conf/nginx/disable_scripts_endpoint.locations -O /etc/nginx/conf.d/scripts_endpoint.locations
+    - restartContainers[bl]
+  setup-docker-access:
+    - setup-docker-conf:
+        confName: docker-group
+        listeningPort: ${settings.dockerGroupListeningPort}
+        connectorPort: ${settings.dockerGroupConnectorPort}
+    - setup-docker-conf:
+        confName: docker-hosted
+        listeningPort: ${settings.dockerHostedListeningPort}
+        connectorPort: ${settings.dockerHostedConnectorPort}
+    - restartContainers[bl]
+  setup-docker-conf:
+    - cmd[bl]: wget ${baseUrl}/conf/nginx/docker.conf -O /etc/nginx/conf.d/${this.confName}.conf
+    - api:
+        - method: environment.file.ReplaceInBody
+          params:
+            nodeGroup: bl
+            path: /etc/nginx/conf.d/${this.confName}.conf
+            pattern: LISTENING_PORT
+            replacement: ${this.listeningPort}
+        - method: environment.file.ReplaceInBody
+          params:
+            nodeGroup: bl
+            path: /etc/nginx/conf.d/${this.confName}.conf
+            pattern: IP
+            replacement: ${nodes.cp.master.intIP}
+        - method: environment.file.ReplaceInBody
+          params:
+            nodeGroup: bl
+            path: /etc/nginx/conf.d/${this.confName}.conf
+            pattern: CONNECTOR_PORT
+            replacement: ${this.connectorPort}
+  setup-firewall-for-docker:
+    - api:
+        - method: environment.security.AddRules
+          params:
+            nodeGroup: bl
+            rules:
+              - action: ALLOW
+                direction: INPUT
+                name: docker-group
+                ports: ${settings.dockerGroupListeningPort}
+                protocol: TCP
+              - action: ALLOW
+                direction: INPUT
+                name: docker-hosted
+                ports: ${settings.dockerHostedListeningPort}
+                protocol: TCP
+        - method: environment.security.AddRules
+          params:
+            nodeGroup: cp
+            rules:
+              - action: ALLOW
+                direction: INPUT
+                name: docker-group
+                ports: ${settings.dockerGroupConnectorPort}
+                protocol: TCP
+                relatedNodeGroup: bl
+              - action: ALLOW
+                direction: INPUT
+                name: docker-hosted
+                ports: ${settings.dockerHostedConnectorPort}
+                protocol: TCP
+                relatedNodeGroup: bl
+  close-from-outside-world:
+    script: https://raw.githubusercontent.com/jelasticozor/jelastic-common/master/security/closeNodeGroupFromOutsideWorld.js
+    nodeGroup: ${this.nodeGroup}
+    relatedNodeGroup: ${this.relatedNodeGroup}
+  auto-redirect-to-https:
+    - cmd[bl]: wget ${baseUrl}/conf/nginx/ssl.conf -O /etc/nginx/conf.d/ssl.conf
+    - cmd[bl]:
+        - sed -i '/#GFADMIN/,/TCP\ SECTION\ PROTOTYPE/d' /etc/nginx/nginx-jelastic.conf
+        - wget ${baseUrl}/conf/nginx/https_redirection.conf -O /tmp/https_redirection.conf
+        - cat /tmp/https_redirection.conf >> /etc/nginx/nginx-jelastic.conf
+      user: root
+    - restartContainers[bl]
 
 addons:
 - id: update-nexus
@@ -77,5 +210,14 @@ addons:
     - log: launching nexus update JPS
     - install: https://raw.githubusercontent.com/jelastic-jps/nexus/master/scripts/update-nexus.jps
       skipEmail: true
+- id: letsencrypt
+  name: letsencrypt
+  onInstall:
+  - install:
+      envName: ${env.envName}
+      nodeGroup: bl
+      jps: https://raw.githubusercontent.com/jelastic-jps/lets-encrypt/blob/master/manifest.jps
+      settings:
+        customDomains: ${settings.externalDomains}
 
 success: text/success-email.md

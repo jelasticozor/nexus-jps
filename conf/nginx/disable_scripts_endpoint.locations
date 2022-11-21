@@ -1,0 +1,4 @@
+location /service/rest/v1/script {
+    deny all;
+    return 404;
+}

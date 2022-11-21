@@ -1,0 +1,7 @@
+type: update
+name: Enable Nexus Scripts
+baseUrl: https://raw.githubusercontent.com/jelasticozor/nexus/main/jelastic
+
+onInstall:
+- cmd[bl]: wget ${baseUrl}/conf/nginx/enable_scripts_endpoint.locations -O /etc/nginx/conf.d/scripts_endpoint.locations
+- restartContainers[bl]
